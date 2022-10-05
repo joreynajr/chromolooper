@@ -1,9 +1,11 @@
 import os
+import numpy as np
 import pybedtools as pbt
 import subprocess as sp
 import io
 import pandas as pd
 import json
+import itertools as it
 
 ###########################################################
 ## set global functions
@@ -31,6 +33,7 @@ for dy in dir_names:
 # set global values for file columns
 BED_COLS = ['chr', 'start', 'end']
 BEDPE_COLS = ['chrA', 'startA', 'endA', 'chrB', 'startB', 'endB', 'score']
+BEDPE_ID_COLS = ['chrA', 'startA', 'endA', 'chrB', 'startB', 'endB', 'score']
 
 # LJI Config
 lji_config = '/mnt/bioadhoc-temp/Groups/vd-ay/jreyna/projects/dchallenge/config/softwares/chromolooper.config.txt'
@@ -97,23 +100,109 @@ def print_enumerate_colnames(df, kind='jupyter'):
         for x in l:
             print(x[0], x[1])
 
-def add_prefix_to_names(names, prefix):
+def add_prefix_to_names(names, prefix, check=True):
     """
     Given list of names, add a prefix.
+
+    Params:
+    -------
+    names: list, list of strings
+    prefix: str, string that should be used as a prefix
+    check: whether to check each name for the current prefix
     """
     
-    l = [prefix + str(x) for x in names]
+    l = []
+    if check == True:
+        for x in names:
+            # stringify x
+            s = str(x)
+
+            # check if prefix is present already
+            if not s.startswith(prefix):
+                s = prefix + str(s)
+            l.append(s)
+    else:
+        for x in l:
+            # stringify x
+            s = prefix + str(x)
+            l.append(s)
     return(l)
 
-def add_suffix_to_names(names, suffix):
+def add_suffix_to_names(names, suffix, check=True):
     """
     Given list of names, add a suffix.
     """
-    
-    l = [str(x) + suffix for x in names]
+
+    l = []
+    if check == True:
+        for x in names:
+            # stringify x
+            s = str(x)
+
+            # check if prefix is present already
+            if not s.endswith(suffix):
+                s = str(s) + suffix
+            l.append(s)
+    else:
+        for x in l:
+            # stringify x
+            s = str(x) + suffix
+            l.append(s)
     return(l)
     
+def df_to_tsv_file(df, fn, header=True):
+    """
+    Write a pandas dataframe to a tsv file format.
+
+    Params:
+    -------
+    df: dataframe
+    fn: str, output path
+    header: bool
+    """
+    df.to_csv(fn, sep='\t', header=header, index=False)
+    return(True)
+
+def df_to_bed_file(df, fn, chr_col=0, start_col=1, end_col=2, other_cols=[]):
+    """
+    Write a pandas dataframe to bed file format. Currently only uses int 
+    column values.
+
+    Params:
+    -------
+    df: dataframe
+    fn: str, output path
+    chr_col: int 
+    start_col: int
+    end_col: int
+    other_cols: list, list of integers
+    """
+
+    cols = [chr_col, start_col, end_col] + other_cols
+    df.iloc[:, cols].to_csv(fn, sep='\t', header=header, index=False)
+    return(True)
         
+def print_list(l, sep='\n'): 
+    s = [str(x) for x in l]
+    s = sep.join(s)
+    print(s)
+
+def range_list(start, end):
+    r = list(np.arange(start, end))
+    return(r)
+
+def optimal_samples_from_groupby(df, grp_col, score_col, func=max):
+    data = []
+    for grp, grp_df in df.groupby([grp_col]):
+        max_val = grp_df[score_col].agg(func)
+        idx = grp_df[score_col].tolist().index(max_val)
+        point = grp_df.iloc[idx,:]
+        data.append(point)
+    data = pd.DataFrame(data)
+    return(data)
+
+def itertools_list(l, func=it.product):
+        p = list(func(*l))
 
 ###########################################################
 ## loop data and metadata functions
@@ -137,8 +226,8 @@ def create_loop_id(chrA, startA, endA, chrB, startB, endB, *args):
     s = '.'.join(l)
     return(s)
 
-def create_loop_id_col(df, chrA_col=1, startA_col=2, endA_col=3,
-                            chrB_col=4, startB_col=5, endB_col=6, extras=[]):
+def create_loop_id_col(df, chrA_col=0, startA_col=1, endA_col=2,
+                            chrB_col=3, startB_col=4, endB_col=5, extras=[]):
     """
     Pass a dataframe with loop data and create a loop ID columns. You can specify the index or header
     names using ALL ints or ALL strs using the *_col praams. An Errors will be thrown if done
@@ -163,6 +252,27 @@ def create_loop_id_col(df, chrA_col=1, startA_col=2, endA_col=3,
         IDs.append(ID)
 
     return(IDs)
+
+def read_multiple_tables_to_df(fns, sep='\t', header=None, *args, **kwargs):
+    
+    """
+    Given a list of files (fns) with the same structure, return a dataframe of everything concatenated.
+    An additional file_name column will be added to indicate the data source. 
+    
+    Params:
+    -------
+    fns: list, list of file paths
+    sep: str, string that should be used for splitting the rows
+    """
+    
+    data = []
+    for fn in fns:
+        tdf = pd.read_table(fn, sep=sep, header=header, *args, **kwargs)
+        tdf['file'] = fn
+        data.append(tdf)
+    df = pd.concat(data)
+    return(df)
+        
 
 
 ###########################################################
