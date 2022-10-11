@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 import pybedtools as pbt
 import subprocess as sp
@@ -6,6 +7,7 @@ import io
 import pandas as pd
 import json
 import itertools as it
+import requests
 
 ###########################################################
 ## set global functions
@@ -163,7 +165,7 @@ def df_to_tsv_file(df, fn, header=True):
     df.to_csv(fn, sep='\t', header=header, index=False)
     return(True)
 
-def df_to_bed_file(df, fn, chr_col=0, start_col=1, end_col=2, other_cols=[]):
+def df_to_bed_file(df, fn, chr_col=0, start_col=1, end_col=2, header=False, sort=False, other_cols=[]):
     """
     Write a pandas dataframe to bed file format. Currently only uses int 
     column values.
@@ -179,6 +181,9 @@ def df_to_bed_file(df, fn, chr_col=0, start_col=1, end_col=2, other_cols=[]):
     """
 
     cols = [chr_col, start_col, end_col] + other_cols
+    if sort == True: 
+        sort_cols = df.columns[[0,1,2]].tolist()
+        df = df.sort_values(sort_cols)
     df.iloc[:, cols].to_csv(fn, sep='\t', header=header, index=False)
     return(True)
         
@@ -202,7 +207,104 @@ def optimal_samples_from_groupby(df, grp_col, score_col, func=max):
     return(data)
 
 def itertools_list(l, func=it.product):
-        p = list(func(*l))
+    p = list(func(*l))
+
+def get_prefix_cols(df, prefix, compliment=False):
+    """
+    Find columns which use the prefix.
+
+    Params:
+    -------
+    df: dataframe
+    prefix: str
+    compliment: bool, if true returns the complimentary columns
+    """
+    col_matches = df.columns.str.match('^{}'.format(prefix))
+
+    if compliment == False: 
+        cols = df.columns[col_matches]
+    else:
+        cols = df.columns[~col_matches]
+    return(cols)
+
+def get_bedpe_prefix_cols(df, prefix):
+    """
+    Get the columns but set the first 6 columns to BEDPE format columns.
+    """
+    
+    # make a list of the bedpe cols
+    bedpe_cols = ['{}{}'.format(prefix, x) for x in sgls.BEDPE_COLS]
+    
+    # get all thee columns with the prefix
+    col_matches = df.columns.str.match('^{}'.format(prefix))
+    all_cols = set(df.columns[col_matches].tolist())
+    
+    # extract extra columns with the prefix (non-default BEDPE columns)
+    extra_cols = all_cols.difference(bedpe_cols)
+    extra_cols = sorted(extra_cols)
+    reorder = bedpe_cols + extra_cols
+    
+    return(reorder)
+
+def check_url(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        return(1)
+    else:
+        return(0) 
+
+def make_lji_url(fn, lji_base_url = 'https://informaticsdata.liai.org/'):
+    """
+    LJI specific URL checker.
+    
+    Params:
+    -------
+    fn: str, path to file (either relative or absolute)
+    lji_base_url: str, url base path 
+    
+    Returns:
+    url: str, url link to file
+    """
+    abs_path = os.path.abspath(fn)
+    url = abs_path.replace('/mnt/', '')
+    url = os.path.join(lji_base_url, url)
+    
+    if not check_url(url):
+        msg = 'Absolute path is not within a web accessible directory' + \
+                '(/mnt/bioadhoc-temp/ or /mnt/BioAdHoc/) or incorrect.'
+        raise Exception(msg)
+    else:
+        return(url)
+
+
+def match_multiple_regexes(s, regexes):
+    if type(regexes) != list:
+        regexes = [regexes]
+        
+    for regex in regexes:
+        if regex.match(s):
+            return(True)
+    return(False)      
+
+def extract_cols_with_prefixes(cols, prefixes=None):
+    
+    if type(prefixes) != list:
+        prefixes = [prefixes]
+    
+    regexes = []
+    for prefix in prefixes: 
+        regex = re.compile('^{}'.format(prefix))
+        regexes.append(regex)
+
+    rcols = []
+    for col in cols: 
+        if match_multiple_regexes(col, regexes):
+            rcols.append(col)
+    return(rcols)
+
+
+
+
 
 ###########################################################
 ## loop data and metadata functions
@@ -565,6 +667,103 @@ def loop_to_many_1d(loops, snps, genes):
     pass
 
 
+def get_col_integer_indexes(df, cols):
+    # case i) all cols are integers, do nothing 
+    if all([type(x) == int for x in cols]):
+        col_indexes = cols
+        
+    # case ii) all cols are listed are strings 
+    elif all([type(x) == str for x in cols]):
+        df_cols = df.columns.tolist()
+        col_indexes = [df_cols.index(x) for x in cols]
+    else:
+        raise Exception('Please check all column are either strings or integers')
+    
+    return(col_indexes)
+
+
+def pairtopair_dataframe(bedpe1, bedpe2, cols1=np.arange(0,7), cols2=np.arange(0,7), merge=True):
+    """
+    Using bedtools pairtopair, intersect the two dataframes. 
+    
+    Params:
+    -------
+    bedpe1: dataframe
+    bedpe2: dataframe 
+    cols1: lists, list of columns to perform the arithmetic, either ints or strs
+    cols2: lists, list of columns to perform the arithmetic, either ints or strs
+    merge: bool, whether to merge back data from the original dataframe
+    
+    Returns:
+    --------
+    dataframe after performing pairtopair and merge information 
+    
+    Usage:
+    ------    
+    # obtain an intersect-p2p dataframe with all previous metadata (merge=True)
+    pairtopair_df(df1, df2, cols1, cols2)
+    
+    # obtain an intersect-p2p dataframe with just loop ids
+    pairtopair_df(df1, df2, cols1, cols2, merge=False)
+    """
+    
+    # check to make sure the pybedtools oly have 7 columns each
+    if len(cols1) != 7 or len(cols2) != 7:
+        raise Exception('cols1 and cols2 should only have 7 columns.')
+        
+    # get column indexes and names
+    col_indexes1 = get_col_integer_indexes(bedpe1, cols1)
+    col_indexes2 = get_col_integer_indexes(bedpe2, cols2)
+    col_names1 = bedpe1.columns[col_indexes1].tolist()
+    col_names2 = bedpe2.columns[col_indexes2].tolist()
+
+    # create the BedTools objects   
+    pbt1 = pbt.BedTool.from_dataframe(bedpe1.iloc[:, col_indexes1])
+    pbt2 = pbt.BedTool.from_dataframe(bedpe2.iloc[:, col_indexes2])
+        
+    # perform the pair to pair 
+    p2p = pbt1.pairtopair(pbt2)    
+    p2p = p2p.to_dataframe(disable_auto_names=False, header=None).iloc[:, 0:14]
+    p2p.columns = col_names1 + col_names2
+    
+    # merge original dataframes with pairtopair
+    if merge == True: 
+        merge_df = bedpe1.merge(p2p, how='left').merge(bedpe2, how='left')
+        return(merge_df)
+    else:
+        return(p2p)
+
+
+
+def get_grp_max(df, max_col, grp_cols=[]):
+    res = df.sort_values(grp_cols, ascending=False).drop_duplicates(subset=max_col)
+    return(res)
+
+def get_grp_min(df, min_col, grp_cols=[]):
+    res = df.sort_values(grp_cols, ascending=False).drop_duplicates(subset=min_col)
+    return(res)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ###########################################################
 ## WashU Browser functions 
 ###########################################################
@@ -604,7 +803,7 @@ def create_washu_second_anchor_col(df, chrB_col=4, startB_col=5, endB_col=6, sco
     return(col)
 
 
-def make_washu_1d_dict(track_type, name, url, show_hub_on_load=True,
+def make_washu_1d_dict(track_type, name, url, show_on_hub_load=True,
                         ensemble_style = True, height = 200,
                         color='red', display_mode='arc'):
     """
@@ -615,7 +814,7 @@ def make_washu_1d_dict(track_type, name, url, show_hub_on_load=True,
     track_type: str
     name: str
     url: str
-    show_hub_on_load: bool
+    show_on_hub_load: bool
     ensemble_style: bool
     height: int
     color: str
@@ -625,13 +824,14 @@ def make_washu_1d_dict(track_type, name, url, show_hub_on_load=True,
     d['type'] = track_type
     d['name'] = name
     d['url'] = url
+    d['showOnHubLoad'] = show_on_hub_load
     d['options'] = {'ensembleStyle': ensemble_style,
                     'height': height,
                     'color': color,
                     'displayMode': display_mode}
     return(d)
 
-def make_washu_longrange_dict(name, url, show_hub_on_load=True,
+def make_washu_longrange_dict(name, url, show_on_hub_load=True,
                               ensembleStyle = True, height = 200,
                               color='red', displayMode='arc'):    
     """
@@ -642,7 +842,7 @@ def make_washu_longrange_dict(name, url, show_hub_on_load=True,
     track_type: str
     name: str
     url: str
-    show_hub_on_load: bool
+    show_on_hub_load: bool
     ensemble_style: bool
     height: int
     color: str
@@ -653,6 +853,7 @@ def make_washu_longrange_dict(name, url, show_hub_on_load=True,
     d['type'] = 'longrange'
     d['name'] = name
     d['url'] = url
+    d['showOnHubLoad'] = show_on_hub_load
     d['options'] = {'ensembleStyle': ensembleStyle,
                     'height': height,
                     'color': color,
