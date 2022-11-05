@@ -233,7 +233,7 @@ def get_bedpe_prefix_cols(df, prefix):
     """
     
     # make a list of the bedpe cols
-    bedpe_cols = ['{}{}'.format(prefix, x) for x in sgls.BEDPE_COLS]
+    bedpe_cols = ['{}{}'.format(prefix, x) for x in BEDPE_COLS]
     
     # get all thee columns with the prefix
     col_matches = df.columns.str.match('^{}'.format(prefix))
@@ -302,6 +302,34 @@ def extract_cols_with_prefixes(cols, prefixes=None):
             rcols.append(col)
     return(rcols)
 
+def find_bed_like_columns(df):
+    """
+    Return all columns that have BED interval columns.
+    For this package the convention is to use chr, start, end
+    """
+    
+    bed_like = []
+    regexes = [re.compile('.*{}.*'.format(x)) for x in BED_COLS[0:3]]
+    
+    for col in df.columns.tolist():
+        if match_multiple_regexes(col, regexes):
+            bed_like.append(col)
+    return(bed_like)
+
+
+def find_bedpe_like_columns(df):
+    """
+    Return all columns which have BEDPE interval columns.
+    For this package the convention is to use chrA, startA, endA, chrB, startB, endB
+    """
+    
+    bedpe_like = []
+    regexes = [re.compile('.*{}.*'.format(x)) for x in BEDPE_COLS[0:6]]
+    
+    for col in df.columns.tolist():
+        if match_multiple_regexes(col, regexes):
+            bedpe_like.append(col)
+    return(bedpe_like)
 
 
 
@@ -374,8 +402,6 @@ def read_multiple_tables_to_df(fns, sep='\t', header=None, *args, **kwargs):
         data.append(tdf)
     df = pd.concat(data)
     return(df)
-        
-
 
 ###########################################################
 ## SGL analysis functions

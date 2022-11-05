@@ -1,3 +1,5 @@
 *~
 chromolooper.egg-info/
-*.ipynb
+*.un~
+*-checkpoint.ipynb
+*.pyc
