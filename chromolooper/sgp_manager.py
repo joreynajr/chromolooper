@@ -18,6 +18,7 @@ class sgpair_manager():
         self.snp_data = snp_data
         self.gene_data = gene_data
         self.loop_data = loop_data
+        self.other_data = {} # should become a sorted dict
         pass
 
     def sgpairs_from_closest_gene(self):
@@ -36,5 +37,11 @@ class sgpair_manager():
     def sgpairs_from_loops(self):
         '''
             Intersecting loops with SNP and gene coordinates to create the SG-Basis.
+        '''
+        pass
+
+    def make_washu_datahub(self):
+        '''
+            Make the corresponding WashU tracks and hub.
         '''
         pass
