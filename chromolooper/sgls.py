@@ -695,7 +695,7 @@ def loop_to_many_1d(loops, snps, genes):
 
 def get_col_integer_indexes(df, cols):
     # case i) all cols are integers, do nothing 
-    if all([type(x) == int for x in cols]):
+    if all([type(x) in [int, np.int64] for x in cols]):
         col_indexes = cols
         
     # case ii) all cols are listed are strings 
